@@ -1,0 +1,269 @@
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>拓扑图打标签</title>
+    <script src="https://www.eecso.com/home/js/jquery-3.1.1.js"></script>
+</head>
+<body>
+    <div>
+
+        <canvas id="mainCanvas" style="height: 100%;position: absolute;top: 0;left: 0;"></canvas>
+        <img style="height: 100%" src = "hangzhou.png"/>
+    </div>
+</body>
+<script>
+const _lineWeight = 4;
+const _lineColor = "#ff0000";
+
+const _lineWeight_aux = 2;
+const _lineColor_aux = "#f100ff";
+
+const _dotR = 8;
+const _dotR_hover = 12;
+//const _dotR_mouse = 12;
+const _dot_color = "#f60";
+const _dot_color_hover = "#ff8069";
+
+
+var _nodes = {};
+var _links = {};
+var _isWorking = false;
+var _linkingNode = null;
+
+
+/***
+ * 以下为系统接口
+ */
+//API接口
+$(document).ready(function(){
+    canvas.width = $("#mainCanvas").width();
+    canvas.height = $("#mainCanvas").height();
+});
+
+var canvas=document.getElementById("mainCanvas");
+var ctx=canvas.getContext("2d");
+
+function drawLine(x1,y1,x2,y2,w,c)
+{
+
+    ctx.beginPath();
+    ctx.setLineDash([1,0]);
+    ctx.moveTo(x1,y1);
+    ctx.lineTo(x2,y2);
+    ctx.strokeStyle=c;//将线条颜色设置为蓝色
+    ctx.lineWidth=w;
+    ctx.stroke();
+}
+
+function drawDashedLine(x1,y1,x2,y2,w,c)
+{
+
+    ctx.beginPath();
+    ctx.setLineDash([5, 3]);
+    ctx.moveTo(x1,y1);
+    ctx.lineTo(x2,y2);
+    ctx.strokeStyle=c;//将线条颜色设置为蓝色
+    ctx.lineWidth=w;
+    ctx.stroke();
+}
+
+function drawDot(x,y,r,c)
+{
+
+    ctx.beginPath();
+    ctx.fillStyle=c;//设置填充颜色
+    ctx.strokeStyle=c;
+    ctx.arc(x,y,r,0,2*Math.PI);
+    ctx.fill();//开始填充
+    //ctx.stroke();//stroke()
+}
+
+function clearCanvas()
+{
+        ctx.clearRect(0,0,canvas.width,canvas.height);
+}
+//调用入口
+//function onMouseMove(x,y)
+//function onMouseClick(x,y)
+//onMouseRightClick(x,y)
+function getMousePos(canvas, evt) {
+    var rect = canvas.getBoundingClientRect();
+    return {
+        x: evt.clientX - rect.left,
+        y: evt.clientY - rect.top
+    };
+}
+canvas.addEventListener('mousemove', function(evt) {
+    var mousePos = getMousePos(canvas, evt);
+    //console.log('Mouse position: ' + mousePos.x + ',' + mousePos.y);
+    onMouseMove(mousePos.x,mousePos.y);
+}, false);
+
+
+//这一步是为了阻止右击时系统默认的弹出框
+canvas.oncontextmenu = function(e){
+    e.preventDefault();
+};
+//在这里你就可以自己定义事件的函数啦
+canvas.onmouseup=function(oEvent) {
+    if (!oEvent) oEvent=window.event;
+    if (oEvent.button==2) {
+        onMouseRightClick(oEvent.x,oEvent.y);
+    }
+}
+
+canvas.addEventListener('click', function(evt) {
+    var mousePos = getMousePos(canvas, evt);
+    //console.log('Mouse position: ' + mousePos.x + ',' + mousePos.y);
+    onMouseClick(mousePos.x,mousePos.y);
+}, false);
+
+/***
+ * 以下为核心逻辑层
+ */
+
+
+class Node
+{
+    id = -1;
+    x = 0;
+    y = 0;
+    constructor(id,x,y)
+    {
+        this.id = id ;
+        this.x = x;
+        this.y = y;
+    }
+}
+
+class Link
+{
+    id = -1;
+    sideNode1 ;
+    sideNode2 ;
+    constructor(id,sideNode1,sideNode2)
+    {
+        this.id = id;
+        this.sideNode1 = sideNode1;
+        this.sideNode2 = sideNode2;
+    }
+}
+
+
+
+function drawGraph()
+{
+    for(var key in _nodes)
+    {
+        var item = _nodes[key];
+        drawDot(item.x,item.y,_dotR,_dot_color);
+    }
+
+    for(var key in _links)
+    {
+        var item = _links[key];
+        drawLine(item.sideNode1.x,item.sideNode1.y,item.sideNode2.x,item.sideNode2.y,_lineWeight,_lineColor);
+    }
+}
+
+
+
+function onMouseMove(x,y)
+{
+    //主要作用：在范围内的时候突出选中，有连线的时候 突出连线
+    clearCanvas();
+    //1、绘制底图
+    drawGraph();
+    //2、绘制动态连线示意
+    if(_linkingNode!=null&&_isWorking==true)
+    {
+        drawDashedLine(_linkingNode.x,_linkingNode.y,x,y,_lineWeight_aux,_lineColor_aux);
+    }
+    //3、绘制鼠标选中点
+    var thisNode = getNodeUnderMouse(x,y);
+    if(thisNode!=null)
+    {
+        drawDot(thisNode.x,thisNode.y,_dotR_hover,_dot_color_hover);
+    }
+}
+
+function getNodeUnderMouse(x,y)
+{
+    var node = null;
+    for(var key in _nodes)
+    {
+        var node = _nodes[key];
+        if(Math.sqrt(Math.pow(node.x-x,2)+Math.pow(node.y-y,2))<_dotR_hover)
+        {
+            return _nodes[key];
+        }
+    }
+    return null;
+}
+
+function onMouseClick(x,y)
+{
+    var thisNode = getNodeUnderMouse(x,y);
+    if(_isWorking)
+    {
+        if(_linkingNode!=null)
+        {
+
+            if(thisNode==null)
+            {
+                _isWorking = true;
+                //新建节点
+                var lastNodeId = Object.keys(_nodes).length;
+                let thisNodeId = lastNodeId+1;
+                var newNode = new Node(thisNodeId,x,y);
+                _nodes[thisNodeId] = newNode;
+                //新建连接关系
+                var lastLinkId = Object.keys(_links).length;
+                let thisLinkId = lastLinkId+1;
+                var newLink = new Link(thisLinkId,_linkingNode,newNode);
+                _links[thisLinkId] = newLink;
+
+                _linkingNode = newNode;
+            }
+            else
+            {
+                if(thisNode!=_linkingNode)
+                {
+                    var lastLinkId = Object.keys(_links).length;
+                    let thisLinkId = lastLinkId+1;
+                    var newLink = new Link(thisLinkId,_linkingNode,thisNode);
+                    _links[thisLinkId] = newLink;
+                    _linkingNode = thisNode;
+                }
+            }
+        }
+    }
+    else
+    {
+        //如果鼠标下是已有节点就选作工作节点，如果不是就新建节点
+        if(thisNode==null)
+        {
+            //新建节点
+            var lastNodeId = Object.keys(_nodes).length;
+            let thisNodeId = lastNodeId+1;
+            var newNode = new Node(thisNodeId,x,y);
+            _nodes[thisNodeId] = newNode;
+            _linkingNode = newNode;
+        }
+        else
+        {
+            _linkingNode = thisNode;
+        }
+
+
+
+        _isWorking = true;
+    }
+}
+function onMouseRightClick(x,y)
+{
+    _isWorking = false;
+}
+</script>
+</html>
+
